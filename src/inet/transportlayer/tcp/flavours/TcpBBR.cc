@@ -122,12 +122,12 @@ void TcpBBR::BBRCheckFullPipe() {
 }
 
 void TcpBBR::BBRCheckDrain() {
-    if (state->BBR->state == Startup and state->BBR->filled_pipe)
+    if (state->BBR->state == Startup && state->BBR->filled_pipe)
         // BBREnterDrain() :
         state->BBR->state = Drain;
         state->BBR->pacing_gain = 1 / BBRHighGain;  // pace slowly
         state->BBR->cwnd_gain = BBRHighGain;    // maintain cwnd
-    if (state->BBR->state == Drain and packets_in_flight <= BBRInFlight(1.0))
+    if (state->BBR->state == Drain && packets_in_flight <= BBRInFlight(1.0))
         BBREnterProbeBW();  // we estimate queue is drained
 }
 
