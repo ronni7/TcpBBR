@@ -25,8 +25,6 @@ void TcpBBR::receivedDataAck(uint32 firstSeqAcked) {
 void TcpBBR::dataSent(uint32 fromseq) {
     EV_INFO << "TcpBBR::dataSent executed" << "\n";
     TcpBaseAlg::dataSent(fromseq);
-    //Upon sending each packet transmission:    packet.delivered = BBR.delivered
-    state->BBR->packet_delivered = state->BBR->delivered;
     BBRHandleRestartFromIdle();
 }
 
@@ -46,11 +44,11 @@ void TcpBBR::BBRUpdateControlParameters() {
 }
 
 void TcpBBR::BBRUpdateRound() {
-    state->BBR->delivered += state->sentBytes; // packet->size
-    // Upon sending each packet transmission  packet.delivered = BBR.delivered //
-    state->BBR->packet_delivered = state->BBR->delivered; // ?
+    state->BBR->total_delivered += state->sentBytes; // packet->size
+    state->BBR->packet_delivered = state->sentBytes; // ? state->sentBytes ?
+//    state->BBR->packets_in_flight = state->BBR->total_delivered - ??;
     if (state->BBR->packet_delivered >= state->BBR->next_round_delivered) {
-        state->BBR->next_round_delivered = state->BBR->delivered;
+        state->BBR->next_round_delivered = state->BBR->total_delivered;
         state->BBR->round_count++;
         state->BBR->round_start = true;
     } else {
@@ -60,18 +58,19 @@ void TcpBBR::BBRUpdateRound() {
 
 void TcpBBR::BBRUpdateBtlBw() {
     BBRUpdateRound();
-    /*  rs.delivery_rate = rs.delivered / rs.interval
-     rs.interval: The length of the sampling interval.
-     rs.delivered: The amount of data marked as delivered over the sampling interval.
-     */
 
-    if (state->BBR->delivered / ProbeRTTInterval >= state->BBR->BtlBw
-            || !state->BBR->is_app_limited) {
+    if (state->BBR->total_delivered / ProbeRTTInterval >= state->BBR->BtlBw) {
         //FIXME Missing method update_windowed_max_filter)()
         /*   state->BBR->BtlBw = update_windowed_max_filter(  ???
          filter = state->BBR->BtlBwFilter, value = state->BBR->delivery_rate,
          time = state->BBR->round_count, window_length = BtlBwFilterLen);
          */
+
+        // On each ACK, update our model of the network path:
+        //      bottleneck_bandwidth = windowed_max(delivered / elapsed, 10 round trips)
+        //      bottleneck_bandwidth = windowed_max(BtlBwFilter, delivery_rate)
+        //      state->BBR->BtlBw = ? state->BBR->delivered / ??elapsed??, 10;
+        //      state->BBR->BtlBw = (state->BBR->BtlBwFilter, state->BBR->delivery_rate)
     }
 }
 
@@ -103,19 +102,19 @@ bool TcpBBR::BBRIsNextCyclePhase() {
     if (state->BBR->pacing_gain == 1) {
         return is_full_length;
     }
+    //Here, "prior_inflight" is the amount of data that was in flight before processing this ACK.
     if (state->BBR->pacing_gain > 1) {
         return is_full_length
                 && (packets_lost > 0
-                        || prior_inflight
+                        || state->sentBytes // prior_inflight
                                 >= BBRInFlight(state->BBR->pacing_gain));
     } else { //  (BBR.pacing_gain < 1)
-        return is_full_length || prior_inflight <= BBRInFlight(1.0);
+        return is_full_length || state->sentBytes <= BBRInFlight(1.0);
     }
 }
 
 void TcpBBR::BBRCheckFullPipe() {
-    if (state->BBR->filled_pipe || !state->BBR->round_start
-            || !state->BBR->is_app_limited) { //FIXME experimental is_app_limited
+    if (state->BBR->filled_pipe || !state->BBR->round_start) {
         return;  // no need to check for a full pipe now
     }
     if (state->BBR->BtlBw >= state->BBR->full_bw * 1.25) { // BBR.BtlBw still growing?
@@ -142,9 +141,10 @@ void TcpBBR::BBRCheckDrain() {
 void TcpBBR::BBRUpdateRTprop() {
     state->BBR->rtprop_expired = simTime().inUnit(SIMTIME_MS)
             > state->BBR->rtprop_stamp + RTpropFilterLen;
-    if (packet.rtt >= 0
-            && (packet.rtt <= state->BBR->RTprop || state->BBR->rtprop_expired)) {
-        state->BBR->RTprop = packet.rtt;
+    if (state->rttvar >= 0
+            && (state->rttvar <= state->BBR->RTprop
+                    || state->BBR->rtprop_expired)) {
+        state->BBR->RTprop = state->rttvar.dbl(); //.dbl => toDouble()
         state->BBR->rtprop_stamp = simTime().inUnit(SIMTIME_MS);
     }
 }
@@ -170,13 +170,12 @@ void TcpBBR::BBREnterProbeRTT() {
 
 void TcpBBR::BBRHandleProbeRTT() {
     /* Ignore low rate samples during ProbeRTT: */
-//    C.app_limited = (BW.delivered + packets_in_flight) ? C.app_limited : 1; FIXME
     if (state->BBR->probe_rtt_done_stamp == 0
             && packets_in_flight <= BBRMinPipeCwnd) {
         state->BBR->probe_rtt_done_stamp = simTime().inUnit(SIMTIME_MS)
                 + ProbeRTTDuration;
         state->BBR->probe_rtt_round_done = false;
-        state->BBR->next_round_delivered = state->BBR->delivered;
+        state->BBR->next_round_delivered = state->BBR->total_delivered;
     } else if (state->BBR->probe_rtt_done_stamp != 0) {
         if (state->BBR->round_start) {
             state->BBR->probe_rtt_round_done = true;
@@ -222,10 +221,11 @@ void TcpBBR::BBRSetCwnd() {
     BBRModulateCwndForRecovery();
     if (!state->BBR->packet_conservation) {
         if (state->BBR->filled_pipe) {
-            state->snd_cwnd = fmin(state->snd_cwnd + state->BBR->packet_delivered, //
-            state->BBR->target_cwnd);
+            state->snd_cwnd = fmin(
+                    state->snd_cwnd + state->BBR->packet_delivered,
+                    state->BBR->target_cwnd);
         } else if (state->snd_cwnd < state->BBR->target_cwnd
-                || state->BBR->delivered < BBRHighGain) {
+                || state->BBR->total_delivered < BBRHighGain) {
             state->snd_cwnd = state->snd_cwnd + state->BBR->packet_delivered;
         }
         state->snd_cwnd = fmax(state->snd_cwnd, BBRMinPipeCwnd);
@@ -250,7 +250,7 @@ void TcpBBR::BBRModulateCwndForProbeRTT() {
 }
 
 void TcpBBR::BBRHandleRestartFromIdle() {
-    if (packets_in_flight == 0 && state->BBR->is_app_limited) {
+    if (packets_in_flight == 0) {
         state->BBR->idle_restart = true;
         if (state->BBR->state == ProbeBW) {
             BBRSetPacingRateWithGain(1);
@@ -291,7 +291,7 @@ void TcpBBR::BBRSetPacingRateWithGain(double pacing_gain) {
     }
 }
 uint32 TcpBBR::BBRSaveCwnd() {
-    if (state->BBR->state != ProbeRTT) // FIXME && !InLossRecovery() if needed
+    if (state->BBR->state != ProbeRTT && !state->lossRecovery)
         return state->snd_cwnd;
     else
         return fmax(state->BBR->prior_cwnd, state->snd_cwnd);
