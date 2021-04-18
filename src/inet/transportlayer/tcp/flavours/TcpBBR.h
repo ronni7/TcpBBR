@@ -8,14 +8,14 @@ namespace inet {
 namespace tcp {
 
 enum State {
-    Startup,
-    Drain,
-    ProbeBW,
-    ProbeRTT
+    Startup, Drain, ProbeBW, ProbeRTT
 };
-
+const double BBRHighGainValue = 2.89;
 class BBR {
+public:
+    uint32 is_app_limited = 0; //FIXME experimental // boolean ?
     uint32 delivered = 0;
+    uint32 packet_delivered = 0; //last packet delivered (?) // FIXME experimental
     uint32 next_round_delivered = 0;
     uint32 round_count = 0;
     uint32 BtlBwFilter = 0;
@@ -30,9 +30,9 @@ class BBR {
     uint32 probe_rtt_done_stamp = 0;
     uint32 prior_cwnd = 0;
     uint32 target_cwnd = 0;
-    double pacing_gain = BBRHighGain;
+    double pacing_gain = BBRHighGainValue;
     double RTprop = 0;
-    double cwnd_gain = BBRHighGain;
+    double cwnd_gain = BBRHighGainValue;
     double pacing_rate = 0;
     State state = Startup;
     bool round_start = false;
@@ -40,19 +40,20 @@ class BBR {
     bool rtprop_expired = false;
     bool idle_restart = false;
     bool packet_conservation = false;
+    bool probe_rtt_round_done= false;
 };
 
-class INET_API TcpBBRStateVariables : public TcpBaseAlgStateVariables
-{
+class INET_API TcpBBRStateVariables: public TcpBaseAlgStateVariables {
+public:
     BBR* BBR;
 };
 
-class INET_API TcpBBR : public TcpBaseAlg
-{
+class INET_API TcpBBR: public TcpBaseAlg {
 protected:
+    const uint32 BtlBwFilterLen = 10;
     const uint32 BBRGainCycleLen = 8;
     const uint32 RTpropFilterLen = 10000; // 10 s
-    const double BBRHighGain = 2.89;
+    const double BBRHighGain = BBRHighGainValue;
     const uint32 ProbeRTTInterval = 10;
     const uint32 ProbeRTTDuration = 200; // 200 ms
     const uint32 BBRMinPipeCwnd = 4; // 4 * SMSS
@@ -82,12 +83,12 @@ protected:
     void BBRModulateCwndForProbeRTT();
     void BBRHandleRestartFromIdle();
     void BBRInit();
-    bool BBRIsNextCyclePhase();
     uint32 BBRInFlight(double gain);
     void BBRUpdateTargetCwnd();
     void BBREnterProbeBW();
     void BBRSetPacingRateWithGain(double pacing_gain);
-
+    uint32 BBRSaveCwnd();
+;
 public:
     /** Ctor */
     TcpBBR();
