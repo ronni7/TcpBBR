@@ -13,13 +13,12 @@ enum State {
 const double BBRHighGainValue = 2.89;
 class BBR {
 public:
-    uint32 is_app_limited = 0; //FIXME experimental // boolean ?
-    uint32 delivered = 0;
+    uint32 total_delivered = 0;
     uint32 packet_delivered = 0; //last packet delivered (?) // FIXME experimental
     uint32 next_round_delivered = 0;
     uint32 round_count = 0;
     uint32 BtlBwFilter = 0;
-    double BtlBw = 0;
+    double BtlBw = 0; //bottleneck bandwith ?
     double full_bw = 0;
     uint32 full_bw_count = 0;
     uint32 delivery_rate = 0;
