@@ -1,6 +1,8 @@
 #ifndef __INET_TCPBBR_H
 #define __INET_TCPBBR_H
 
+#define BtlBwFilterLen 10
+
 #include "inet/common/INETDefs.h"
 #include "inet/transportlayer/tcp/flavours/TcpBaseAlg.h"
 
@@ -14,14 +16,15 @@ const double BBRHighGainValue = 2.89;
 class BBR {
 public:
     uint32 total_delivered = 0;
-    uint32 packet_delivered = 0; //last packet delivered (?) // FIXME experimental
+    uint32 packet_delivered = 0; // "packet.delivered" as specified in technical draft
     uint32 next_round_delivered = 0;
     uint32 round_count = 0;
-    uint32 BtlBwFilter = 0;
-    double BtlBw = 0; //bottleneck bandwith ?
-    double full_bw = 0;
+    uint32 BtlBwFilter[BtlBwFilterLen];
+    uint32 BtlBwFilterIndex = 0;
+    uint32 BtlBwFilterLastSampleTime = 0;
+    uint32 BtlBw = 0; //bottleneck bandwidth
+    uint32 full_bw = 0;
     uint32 full_bw_count = 0;
-    uint32 delivery_rate = 0;
     uint32 cycle_stamp = 0;
     uint32 cycle_index = 0;
     uint32 rtprop_stamp = 0;
@@ -30,9 +33,15 @@ public:
     uint32 prior_cwnd = 0;
     uint32 target_cwnd = 0;
     double pacing_gain = BBRHighGainValue;
-    double RTprop = 0;
+    double RTprop = INFINITY;
     double cwnd_gain = BBRHighGainValue;
     double pacing_rate = 0;
+    double packet_send_time = 0;
+    double packet_rtt = 0;
+    uint32 packets_in_flight = 0;
+    uint32 packets_delivered = 0;
+    uint32 prior_inflight = 0;
+    uint32 packets_lost = 0;
     State state = Startup;
     bool round_start = false;
     bool filled_pipe = false;
@@ -49,13 +58,11 @@ public:
 
 class INET_API TcpBBR: public TcpBaseAlg {
 protected:
-    const uint32 BtlBwFilterLen = 10;
     const uint32 BBRGainCycleLen = 8;
     const uint32 RTpropFilterLen = 10000; // 10 s
     const double BBRHighGain = BBRHighGainValue;
-    const uint32 ProbeRTTInterval = 10;
     const uint32 ProbeRTTDuration = 200; // 200 ms
-    const uint32 BBRMinPipeCwnd = 4; // 4 * SMSS
+    const uint32 BBRMinPipeCwndFactor = 4; // BBRMinPipeCwnd = 4 * SMSS
 
     TcpBBRStateVariables *& state;    // alias to TcpAlgorithm's 'state'
 
@@ -87,6 +94,7 @@ protected:
     void BBREnterProbeBW();
     void BBRSetPacingRateWithGain(double pacing_gain);
     uint32 BBRSaveCwnd();
+    uint32 UpdateBtlBwFilterAndGetMax(uint32 value, uint32 time);
 ;
 public:
     /** Ctor */
@@ -97,6 +105,8 @@ public:
 
     /** Called after we send data */
     virtual void dataSent(uint32 fromseq) override;
+
+    virtual void segmentRetransmitted(uint32 fromseq, uint32 toseq) override;
 };
 
 } // namespace tcp
