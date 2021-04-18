@@ -106,10 +106,10 @@ bool TcpBBR::BBRIsNextCyclePhase() {
     if (state->BBR->pacing_gain > 1) {
         return is_full_length
                 && (packets_lost > 0
-                        || state->sentBytes // prior_inflight
+                        || prior_inflight
                                 >= BBRInFlight(state->BBR->pacing_gain));
     } else { //  (BBR.pacing_gain < 1)
-        return is_full_length || state->sentBytes <= BBRInFlight(1.0);
+        return is_full_length || prior_inflight <= BBRInFlight(1.0);
     }
 }
 
@@ -141,10 +141,10 @@ void TcpBBR::BBRCheckDrain() {
 void TcpBBR::BBRUpdateRTprop() {
     state->BBR->rtprop_expired = simTime().inUnit(SIMTIME_MS)
             > state->BBR->rtprop_stamp + RTpropFilterLen;
-    if (state->rttvar >= 0
-            && (state->rttvar <= state->BBR->RTprop
+    if (packet.rtt >= 0
+            && (packet.rtt <= state->BBR->RTprop
                     || state->BBR->rtprop_expired)) {
-        state->BBR->RTprop = state->rttvar.dbl(); //.dbl => toDouble()
+        state->BBR->RTprop = packet.rtt;
         state->BBR->rtprop_stamp = simTime().inUnit(SIMTIME_MS);
     }
 }
