@@ -13,47 +13,43 @@ enum State {
     Startup, Drain, ProbeBW, ProbeRTT
 };
 const double BBRHighGainValue = 2.89;
-class BBR {
-public:
-    uint32 total_delivered = 0;
-    uint32 packet_delivered = 0; // "packet.delivered" as specified in technical draft
-    uint32 next_round_delivered = 0;
-    uint32 round_count = 0;
-    uint32 BtlBwFilter[BtlBwFilterLen];
-    uint32 BtlBwFilterIndex = 0;
-    uint32 BtlBwFilterLastSampleTime = 0;
-    uint32 BtlBw = 0; //bottleneck bandwidth
-    uint32 full_bw = 0;
-    uint32 full_bw_count = 0;
-    uint32 cycle_stamp = 0;
-    uint32 cycle_index = 0;
-    uint32 rtprop_stamp = 0;
-    uint32 send_quantum = 0;
-    uint32 probe_rtt_done_stamp = 0;
-    uint32 prior_cwnd = 0;
-    uint32 target_cwnd = 0;
-    double pacing_gain = BBRHighGainValue;
-    double RTprop = INFINITY;
-    double cwnd_gain = BBRHighGainValue;
-    double pacing_rate = 0;
-    double packet_send_time = 0;
-    double packet_rtt = 0;
-    uint32 packets_in_flight = 0;
-    uint32 packets_delivered = 0;
-    uint32 prior_inflight = 0;
-    uint32 packets_lost = 0;
-    State state = Startup;
-    bool round_start = false;
-    bool filled_pipe = false;
-    bool rtprop_expired = false;
-    bool idle_restart = false;
-    bool packet_conservation = false;
-    bool probe_rtt_round_done= false;
-};
 
 class INET_API TcpBBRStateVariables: public TcpBaseAlgStateVariables {
 public:
-    BBR* BBR;
+    uint32 BBR_total_delivered = 0;
+    uint32 BBR_packet_delivered = 0; // "packet.delivered" as specified in technical draft
+    uint32 BBR_next_round_delivered = 0;
+    uint32 BBR_round_count = 0;
+    uint32 BBR_BtlBwFilter[BtlBwFilterLen];
+    uint32 BBR_BtlBwFilterIndex = 0;
+    uint32 BBR_BtlBwFilterLastSampleTime = 0;
+    uint32 BBR_BtlBw = 0; //bottleneck bandwidth
+    uint32 BBR_full_bw = 0;
+    uint32 BBR_full_bw_count = 0;
+    uint32 BBR_cycle_stamp = 0;
+    uint32 BBR_cycle_index = 0;
+    uint32 BBR_rtprop_stamp = 0;
+    uint32 BBR_send_quantum = 0;
+    uint32 BBR_probe_rtt_done_stamp = 0;
+    uint32 BBR_prior_cwnd = 0;
+    uint32 BBR_target_cwnd = 0;
+    double BBR_pacing_gain = BBRHighGainValue;
+    double BBR_RTprop = INFINITY;
+    double BBR_cwnd_gain = BBRHighGainValue;
+    double BBR_pacing_rate = 0;
+    double BBR_packet_send_time = 0;
+    double BBR_packet_rtt = 0;
+    uint32 BBR_packets_in_flight = 0;
+    uint32 BBR_packets_delivered = 0;
+    uint32 BBR_prior_inflight = 0;
+    uint32 BBR_packets_lost = 0;
+    State BBR_state = Startup;
+    bool BBR_round_start = false;
+    bool BBR_filled_pipe = false;
+    bool BBR_rtprop_expired = false;
+    bool BBR_idle_restart = false;
+    bool BBR_packet_conservation = false;
+    bool BBR_probe_rtt_round_done= false;
 };
 
 class INET_API TcpBBR: public TcpBaseAlg {

@@ -18,10 +18,10 @@ TcpStateVariables *TcpBBR::createStateVariables() {
 void TcpBBR::receivedDataAck(uint32 firstSeqAcked) {
     EV_INFO << "TcpBBR::receivedDataAck executed" << "\n";
     TcpBaseAlg::receivedDataAck(firstSeqAcked);
-    state->BBR->packet_rtt = simTime().inUnit(SIMTIME_MS) - state->BBR->packet_send_time;
-    state->BBR->prior_inflight = state->BBR->packets_in_flight;
-    state->BBR->packets_in_flight--;
-    state->BBR->packets_delivered++;
+    state->BBR_packet_rtt = simTime().inUnit(SIMTIME_MS) - state->BBR_packet_send_time;
+    state->BBR_prior_inflight = state->BBR_packets_in_flight;
+    state->BBR_packets_in_flight--;
+    state->BBR_packets_delivered++;
     BBRUpdateModelAndState();
     BBRUpdateControlParameters();
 }
@@ -30,11 +30,11 @@ void TcpBBR::dataSent(uint32 fromseq) {
     EV_INFO << "TcpBBR::dataSent executed" << "\n";
     TcpBaseAlg::dataSent(fromseq);
     //Upon sending each packet transmission:    packet.delivered = BBR.delivered
-    state->BBR->packet_delivered = state->BBR->total_delivered;
-    state->BBR->packet_send_time = simTime().inUnit(SIMTIME_MS);
-    state->BBR->packets_in_flight++;
-    if (state->BBR->packets_lost > 0) {
-        state->BBR->packets_lost--;
+    state->BBR_packet_delivered = state->BBR_total_delivered;
+    state->BBR_packet_send_time = simTime().inUnit(SIMTIME_MS);
+    state->BBR_packets_in_flight++;
+    if (state->BBR_packets_lost > 0) {
+        state->BBR_packets_lost--;
     }
     BBRHandleRestartFromIdle();
 }
@@ -55,177 +55,177 @@ void TcpBBR::BBRUpdateControlParameters() {
 }
 
 void TcpBBR::BBRUpdateRound() {
-    state->BBR->total_delivered += state->sentBytes;
-    if (state->BBR->packet_delivered >= state->BBR->next_round_delivered) {
-        state->BBR->next_round_delivered = state->BBR->total_delivered;
-        state->BBR->round_count++;
-        state->BBR->round_start = true;
+    state->BBR_total_delivered += state->sentBytes;
+    if (state->BBR_packet_delivered >= state->BBR_next_round_delivered) {
+        state->BBR_next_round_delivered = state->BBR_total_delivered;
+        state->BBR_round_count++;
+        state->BBR_round_start = true;
     } else {
-        state->BBR->round_start = false;
+        state->BBR_round_start = false;
     }
 }
 
 void TcpBBR::BBRUpdateBtlBw() {
     BBRUpdateRound();
     uint32 delivery_rate = state->srtt.inUnit(SIMTIME_MS);
-    if (delivery_rate >= state->BBR->BtlBw) {
-        state->BBR->BtlBw = UpdateBtlBwFilterAndGetMax(delivery_rate, state->BBR->round_count);
+    if (delivery_rate >= state->BBR_BtlBw) {
+        state->BBR_BtlBw = UpdateBtlBwFilterAndGetMax(delivery_rate, state->BBR_round_count);
     }
 }
 
 void TcpBBR::BBRCheckCyclePhase() {
-    if (state->BBR->state == ProbeBW && BBRIsNextCyclePhase()) {
+    if (state->BBR_state == ProbeBW && BBRIsNextCyclePhase()) {
         BBRAdvanceCyclePhase();
     }
 }
 
 void TcpBBR::BBRAdvanceCyclePhase() {
-    state->BBR->cycle_stamp = simTime().inUnit(SIMTIME_MS);
-    state->BBR->cycle_index = (state->BBR->cycle_index + 1) % BBRGainCycleLen;
-    switch (state->BBR->cycle_index) {
+    state->BBR_cycle_stamp = simTime().inUnit(SIMTIME_MS);
+    state->BBR_cycle_index = (state->BBR_cycle_index + 1) % BBRGainCycleLen;
+    switch (state->BBR_cycle_index) {
     case 0:
-        state->BBR->pacing_gain = 5.0 / 4.0;
+        state->BBR_pacing_gain = 5.0 / 4.0;
         break;
     case 1:
-        state->BBR->pacing_gain = 3.0 / 4.0;
+        state->BBR_pacing_gain = 3.0 / 4.0;
         break;
     default:
-        state->BBR->pacing_gain = 1;
+        state->BBR_pacing_gain = 1;
         break;
     }
 }
 
 bool TcpBBR::BBRIsNextCyclePhase() {
     bool is_full_length = (simTime().inUnit(SIMTIME_MS)
-            - state->BBR->cycle_stamp) > state->BBR->RTprop;
-    if (state->BBR->pacing_gain == 1) {
+            - state->BBR_cycle_stamp) > state->BBR_RTprop;
+    if (state->BBR_pacing_gain == 1) {
         return is_full_length;
     }
     //Here, "prior_inflight" is the amount of data that was in flight before processing this ACK.
-    if (state->BBR->pacing_gain > 1) {
+    if (state->BBR_pacing_gain > 1) {
         return is_full_length
-                && (state->BBR->packets_lost > 0
-                        || state->BBR->prior_inflight
-                                >= BBRInFlight(state->BBR->pacing_gain));
+                && (state->BBR_packets_lost > 0
+                        || state->BBR_prior_inflight
+                                >= BBRInFlight(state->BBR_pacing_gain));
     } else { //  (BBR.pacing_gain < 1)
-        return is_full_length || state->BBR->prior_inflight <= BBRInFlight(1.0);
+        return is_full_length || state->BBR_prior_inflight <= BBRInFlight(1.0);
     }
 }
 
 void TcpBBR::BBRCheckFullPipe() {
-    if (state->BBR->filled_pipe || !state->BBR->round_start) {
+    if (state->BBR_filled_pipe || !state->BBR_round_start) {
         return;  // no need to check for a full pipe now
     }
-    if (state->BBR->BtlBw >= state->BBR->full_bw * 1.25) { // BBR.BtlBw still growing?
-        state->BBR->full_bw = state->BBR->BtlBw;    // record new baseline level
-        state->BBR->full_bw_count = 0;
+    if (state->BBR_BtlBw >= state->BBR_full_bw * 1.25) { // BBR.BtlBw still growing?
+        state->BBR_full_bw = state->BBR_BtlBw;    // record new baseline level
+        state->BBR_full_bw_count = 0;
         return;
     }
-    state->BBR->full_bw_count++; // another round w/o much growth
-    if (state->BBR->full_bw_count >= 3) {
-        state->BBR->filled_pipe = true;
+    state->BBR_full_bw_count++; // another round w/o much growth
+    if (state->BBR_full_bw_count >= 3) {
+        state->BBR_filled_pipe = true;
     }
 }
 
 void TcpBBR::BBRCheckDrain() {
-    if (state->BBR->state == Startup && state->BBR->filled_pipe)
+    if (state->BBR_state == Startup && state->BBR_filled_pipe)
         // BBREnterDrain() :
-        state->BBR->state = Drain;
-    state->BBR->pacing_gain = 1 / BBRHighGain;  // pace slowly
-    state->BBR->cwnd_gain = BBRHighGain;    // maintain cwnd
-    if (state->BBR->state == Drain && state->BBR->packets_in_flight <= BBRInFlight(1.0))
+        state->BBR_state = Drain;
+    state->BBR_pacing_gain = 1 / BBRHighGain;  // pace slowly
+    state->BBR_cwnd_gain = BBRHighGain;    // maintain cwnd
+    if (state->BBR_state == Drain && state->BBR_packets_in_flight <= BBRInFlight(1.0))
         BBREnterProbeBW();  // we estimate queue is drained
 }
 
 void TcpBBR::BBRUpdateRTprop() {
-    state->BBR->rtprop_expired = simTime().inUnit(SIMTIME_MS)
-            > state->BBR->rtprop_stamp + RTpropFilterLen;
-    if (state->BBR->packet_rtt >= 0
-            && (state->BBR->packet_rtt <= state->BBR->RTprop
-                    || state->BBR->rtprop_expired)) {
-        state->BBR->RTprop = state->BBR->packet_rtt;
-        state->BBR->rtprop_stamp = simTime().inUnit(SIMTIME_MS);
+    state->BBR_rtprop_expired = simTime().inUnit(SIMTIME_MS)
+            > state->BBR_rtprop_stamp + RTpropFilterLen;
+    if (state->BBR_packet_rtt >= 0
+            && (state->BBR_packet_rtt <= state->BBR_RTprop
+                    || state->BBR_rtprop_expired)) {
+        state->BBR_RTprop = state->BBR_packet_rtt;
+        state->BBR_rtprop_stamp = simTime().inUnit(SIMTIME_MS);
     }
 }
 
 void TcpBBR::BBRCheckProbeRTT() {
-    if (state->BBR->state != ProbeRTT && state->BBR->rtprop_expired
-            && !state->BBR->idle_restart) {
+    if (state->BBR_state != ProbeRTT && state->BBR_rtprop_expired
+            && !state->BBR_idle_restart) {
         BBREnterProbeRTT();
         BBRSaveCwnd();
-        state->BBR->probe_rtt_done_stamp = 0;
+        state->BBR_probe_rtt_done_stamp = 0;
     }
-    if (state->BBR->state == ProbeRTT) {
+    if (state->BBR_state == ProbeRTT) {
         BBRHandleProbeRTT();
     }
-    state->BBR->idle_restart = false;
+    state->BBR_idle_restart = false;
 }
 
 void TcpBBR::BBREnterProbeRTT() {
-    state->BBR->state = ProbeRTT;
-    state->BBR->pacing_gain = 1;
-    state->BBR->cwnd_gain = 1;
+    state->BBR_state = ProbeRTT;
+    state->BBR_pacing_gain = 1;
+    state->BBR_cwnd_gain = 1;
 }
 
 void TcpBBR::BBRHandleProbeRTT() {
     /* Ignore low rate samples during ProbeRTT: */
-    if (state->BBR->probe_rtt_done_stamp == 0
-            && state->BBR->packets_in_flight <= BBRMinPipeCwndFactor * state->snd_mss) {
-        state->BBR->probe_rtt_done_stamp = simTime().inUnit(SIMTIME_MS)
+    if (state->BBR_probe_rtt_done_stamp == 0
+            && state->BBR_packets_in_flight <= BBRMinPipeCwndFactor * state->snd_mss) {
+        state->BBR_probe_rtt_done_stamp = simTime().inUnit(SIMTIME_MS)
                 + ProbeRTTDuration;
-        state->BBR->probe_rtt_round_done = false;
-        state->BBR->next_round_delivered = state->BBR->total_delivered;
-    } else if (state->BBR->probe_rtt_done_stamp != 0) {
-        if (state->BBR->round_start) {
-            state->BBR->probe_rtt_round_done = true;
+        state->BBR_probe_rtt_round_done = false;
+        state->BBR_next_round_delivered = state->BBR_total_delivered;
+    } else if (state->BBR_probe_rtt_done_stamp != 0) {
+        if (state->BBR_round_start) {
+            state->BBR_probe_rtt_round_done = true;
         }
-        if (state->BBR->probe_rtt_round_done
+        if (state->BBR_probe_rtt_round_done
                 && simTime().inUnit(SIMTIME_MS)
-                        > state->BBR->probe_rtt_done_stamp) {
-            state->BBR->rtprop_stamp = simTime().inUnit(SIMTIME_MS);
+                        > state->BBR_probe_rtt_done_stamp) {
+            state->BBR_rtprop_stamp = simTime().inUnit(SIMTIME_MS);
             // BBRRestoreCwnd() :
-            state->snd_cwnd = fmax(state->snd_cwnd, state->BBR->prior_cwnd);
+            state->snd_cwnd = fmax(state->snd_cwnd, state->BBR_prior_cwnd);
             BBRExitProbeRTT();
         }
     }
 }
 
 void TcpBBR::BBRExitProbeRTT() {
-    if (state->BBR->filled_pipe) {
+    if (state->BBR_filled_pipe) {
         BBREnterProbeBW();
     } else {
         // BBREnterStartup() :
-        state->BBR->state = Startup;
-        state->BBR->pacing_gain = BBRHighGain;
-        state->BBR->cwnd_gain = BBRHighGain;
+        state->BBR_state = Startup;
+        state->BBR_pacing_gain = BBRHighGain;
+        state->BBR_cwnd_gain = BBRHighGain;
     }
 }
 
 void TcpBBR::BBRSetPacingRate() {
-    BBRSetPacingRateWithGain(state->BBR->pacing_gain);
+    BBRSetPacingRateWithGain(state->BBR_pacing_gain);
 }
 
 void TcpBBR::BBRSetSendQuantum() {
-    if (state->BBR->pacing_rate < 1200000) { // 1.2 Mbps
-        state->BBR->send_quantum = state->snd_mss;
-    } else if (state->BBR->pacing_rate < 24000000) { // 24 Mbps
-        state->BBR->send_quantum = 2 * state->snd_mss;
+    if (state->BBR_pacing_rate < 1200000) { // 1.2 Mbps
+        state->BBR_send_quantum = state->snd_mss;
+    } else if (state->BBR_pacing_rate < 24000000) { // 24 Mbps
+        state->BBR_send_quantum = 2 * state->snd_mss;
     } else {
-        state->BBR->send_quantum = fmin(state->BBR->pacing_rate, 64000); // fmin(BBR.pacing_rate * 1ms, 64KBytes)
+        state->BBR_send_quantum = fmin(state->BBR_pacing_rate, 64000); // fmin(BBR.pacing_rate * 1ms, 64KBytes)
     }
 }
 
 void TcpBBR::BBRSetCwnd() {
     BBRUpdateTargetCwnd();
     BBRModulateCwndForRecovery();
-    if (!state->BBR->packet_conservation) {
-        if (state->BBR->filled_pipe) {
+    if (!state->BBR_packet_conservation) {
+        if (state->BBR_filled_pipe) {
             state->snd_cwnd = fmin(
-                    state->snd_cwnd + state->BBR->packets_delivered,
-                    state->BBR->target_cwnd);
-        } else if (state->snd_cwnd < state->BBR->target_cwnd
-                || state->BBR->total_delivered < BBRHighGain) {
-            state->snd_cwnd = state->snd_cwnd + state->BBR->packets_delivered;
+                    state->snd_cwnd + state->BBR_packets_delivered,
+                    state->BBR_target_cwnd);
+        } else if (state->snd_cwnd < state->BBR_target_cwnd
+                || state->BBR_total_delivered < BBRHighGain) {
+            state->snd_cwnd = state->snd_cwnd + state->BBR_packets_delivered;
         }
         state->snd_cwnd = fmax(state->snd_cwnd, BBRMinPipeCwndFactor * state->snd_mss);
     }
@@ -233,93 +233,92 @@ void TcpBBR::BBRSetCwnd() {
 }
 
 void TcpBBR::BBRModulateCwndForRecovery() {
-    if (state->BBR->packets_lost > 0) {
-        state->snd_cwnd = fmax(state->snd_cwnd - state->BBR->packets_lost, 1);
+    if (state->BBR_packets_lost > 0) {
+        state->snd_cwnd = fmax(state->snd_cwnd - state->BBR_packets_lost, 1);
     }
-    if (state->BBR->packet_conservation) {
+    if (state->BBR_packet_conservation) {
         state->snd_cwnd = fmax(state->snd_cwnd,
-                state->BBR->packets_in_flight + state->BBR->packet_delivered);
+                state->BBR_packets_in_flight + state->BBR_packet_delivered);
     }
 }
 
 void TcpBBR::BBRModulateCwndForProbeRTT() {
-    if (state->BBR->state == ProbeRTT) {
+    if (state->BBR_state == ProbeRTT) {
         state->snd_cwnd = fmin(state->snd_cwnd, BBRMinPipeCwndFactor * state->snd_mss);
     }
 }
 
 void TcpBBR::BBRHandleRestartFromIdle() {
-    if (state->BBR->packets_in_flight == 0) {
-        state->BBR->idle_restart = true;
-        if (state->BBR->state == ProbeBW) {
+    if (state->BBR_packets_in_flight == 0) {
+        state->BBR_idle_restart = true;
+        if (state->BBR_state == ProbeBW) {
             BBRSetPacingRateWithGain(1);
         }
     }
 }
 
 void TcpBBR::BBRInit() {
-    state->BBR = new BBR();
 }
 
 uint32 TcpBBR::BBRInFlight(double gain) {
-    if (state->BBR->RTprop == INFINITY) {
+    if (state->BBR_RTprop == INFINITY) {
         return state->snd_cwnd; /* no valid RTT samples yet */
     }
-    double quanta = 3 * state->BBR->send_quantum;
-    double estimated_bdp = state->BBR->BtlBw * state->BBR->RTprop;
+    double quanta = 3 * state->BBR_send_quantum;
+    double estimated_bdp = state->BBR_BtlBw * state->BBR_RTprop;
     return gain * estimated_bdp + quanta;
 }
 
 void TcpBBR::BBRUpdateTargetCwnd() {
-    state->BBR->target_cwnd = TcpBBR::BBRInFlight(state->BBR->cwnd_gain);
+    state->BBR_target_cwnd = TcpBBR::BBRInFlight(state->BBR_cwnd_gain);
 }
 
 void TcpBBR::BBREnterProbeBW() {
-    state->BBR->state = ProbeBW;
-    state->BBR->pacing_gain = 1;
-    state->BBR->cwnd_gain = 2;
-    state->BBR->cycle_index = BBRGainCycleLen - 1 - (rand() % 7);
+    state->BBR_state = ProbeBW;
+    state->BBR_pacing_gain = 1;
+    state->BBR_cwnd_gain = 2;
+    state->BBR_cycle_index = BBRGainCycleLen - 1 - (rand() % 7);
     BBRAdvanceCyclePhase();
 }
 
 void TcpBBR::BBRSetPacingRateWithGain(double pacing_gain) {
-    double rate = state->BBR->pacing_gain * state->BBR->BtlBw;
-    if (state->BBR->filled_pipe || rate > state->BBR->pacing_rate) {
-        state->BBR->pacing_rate = rate;
+    double rate = state->BBR_pacing_gain * state->BBR_BtlBw;
+    if (state->BBR_filled_pipe || rate > state->BBR_pacing_rate) {
+        state->BBR_pacing_rate = rate;
     }
 }
 uint32 TcpBBR::BBRSaveCwnd() {
-    if (state->BBR->state != ProbeRTT && !state->lossRecovery)
+    if (state->BBR_state != ProbeRTT && !state->lossRecovery)
         return state->snd_cwnd;
     else
-        return fmax(state->BBR->prior_cwnd, state->snd_cwnd);
+        return fmax(state->BBR_prior_cwnd, state->snd_cwnd);
 }
 
 void TcpBBR::segmentRetransmitted(uint32 fromseq, uint32 toseq) {
     TcpBaseAlg::segmentRetransmitted(fromseq, toseq);
     // Upon retransmission all packets in flight are considered lost.
-    state->BBR->packets_lost += state->BBR->packets_in_flight;
-    state->BBR->packets_in_flight = 0;
+    state->BBR_packets_lost += state->BBR_packets_in_flight;
+    state->BBR_packets_in_flight = 0;
     // Steps after RTO:
-    state->BBR->prior_cwnd = BBRSaveCwnd();
+    state->BBR_prior_cwnd = BBRSaveCwnd();
     state->snd_cwnd = 1;
 }
 
 uint32 TcpBBR::UpdateBtlBwFilterAndGetMax(uint32 value, uint32 time) {
-    uint32 amountOfTime = time - state->BBR->BtlBwFilterLastSampleTime;
+    uint32 amountOfTime = time - state->BBR_BtlBwFilterLastSampleTime;
     while (amountOfTime-- > 0) {
-        state->BBR->BtlBwFilter[state->BBR->BtlBwFilterIndex] = value;
-        state->BBR->BtlBwFilterIndex++;
-        if (state->BBR->BtlBwFilterIndex >= BtlBwFilterLen) {
-            state->BBR->BtlBwFilterIndex = 0;
+        state->BBR_BtlBwFilter[state->BBR_BtlBwFilterIndex] = value;
+        state->BBR_BtlBwFilterIndex++;
+        if (state->BBR_BtlBwFilterIndex >= BtlBwFilterLen) {
+            state->BBR_BtlBwFilterIndex = 0;
         }
     }
-    state->BBR->BtlBwFilterLastSampleTime = time;
+    state->BBR_BtlBwFilterLastSampleTime = time;
 
     uint32 max = 0;
     for (uint32 i = 0; i < BtlBwFilterLen; i++) {
-        if (state->BBR->BtlBwFilter[state->BBR->BtlBwFilterIndex] > max) {
-            max = state->BBR->BtlBwFilter[state->BBR->BtlBwFilterIndex];
+        if (state->BBR_BtlBwFilter[state->BBR_BtlBwFilterIndex] > max) {
+            max = state->BBR_BtlBwFilter[state->BBR_BtlBwFilterIndex];
         }
     }
     return max;
